@@ -1,0 +1,26 @@
+{
+  "name": "ai-property-walkthrough",
+  "version": "0.1.0",
+  "description": "Upload room photos and get an AI-guided property walkthrough and condition report.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/davejensen175/best-repo-ever.git"
+  },
+  "bugs": {
+    "url": "https://github.com/davejensen175/best-repo-ever/issues"
+  },
+  "homepage": "https://github.com/davejensen175/best-repo-ever#readme",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.128.0"
+  },
+  "type": "module",
+  "private": true,
+  "engines": {
+    "node": ">=20"
+  }
+}
