@@ -1,53 +1,122 @@
-# AI Property Walkthrough
+# NextRoom: AI property walkthroughs
 
-Upload photos of a property room by room. The app returns a guided walkthrough with a condition
-report written by Claude:
+Turns a listing's existing photos and floor plan into an interactive walkthrough buyers can move
+through, room by room, with a floor-plan minimap showing where they are standing. Sold to agents
+per listing. The full product spec is in [`docs/spec.md`](docs/spec.md).
 
-- narration for each room, in the order you list the rooms
-- highlights, plus a condition rating for each room and for the property overall
-- visible issues, each with a severity (low / medium / high) and a recommendation
-- what couldn't be judged from the photos, so the report doesn't guess
-- top priorities and questions to ask the seller, agent or landlord
-- a print-friendly layout, so you can save the report as a PDF
+| Agent editor | Buyer view (phone) | Minimap |
+|---|---|---|
+| ![Editor](docs/screenshots/editor.png) | ![Viewer](docs/screenshots/viewer-entry.png) | ![Minimap](docs/screenshots/viewer-minimap.png) |
 
-![Sample report](docs/sample-report.png)
+## Status
 
-## Running it
+Phase 1, build steps 1–3 from the spec (the demo for the first agent) are done:
 
-Requires Node 20+ and an [Anthropic API key](https://console.anthropic.com/).
+- [x] **Step 1:** sign up and sign in (email + password), create, edit and delete properties, and
+  upload photos straight to Supabase Storage. Photos are resized in the browser to 2560px.
+  Uploaders confirm they have the rights to their photos, per spec §4.
+- [x] **Step 2:** a public viewer at `/p/<slug>`, built mobile first. The agent names rooms,
+  groups photos into rooms, picks each room's primary photo and sets the room order. Buyers tap
+  or swipe through photos and rooms, or use the room list. The agent can preview drafts, and
+  publishing creates a share link.
+- [x] **Step 3:** the agent uploads a floor plan (an image, or a PDF whose first page is used)
+  and clicks or drags room nodes onto it. Buyers get a corner minimap that marks the current
+  room; tapping it expands the plan, and tapping a room jumps to it.
+
+Next, in spec order:
+
+- [ ] **Step 4:** hotspot editor. The `hotspots` table and its access rules already exist.
+- [ ] **Step 5:** automatic room labels from a vision model call per photo.
+- [ ] **Step 6:** virtual staging with approve and regenerate. The `staged_images` table exists.
+  The spec §4 rules are required here: a "virtually staged" label that can't be turned off, and
+  no changes to the structure or condition of the room.
+- [ ] **Step 7:** embed snippet and lead capture. The `leads` table exists, and anyone can
+  already insert a lead on a published property.
+- [ ] **Step 8:** Stripe, one-time per-listing pricing.
+
+Known limitations:
+
+- **Draft media is not access-controlled.** The storage bucket is public, so anyone with a draft
+  photo's exact URL can open it. The URLs contain random UUIDs, so they can't be guessed. Switch
+  to signed URLs if that isn't acceptable.
+- **The terms page (`/terms`) is a placeholder.** Have it reviewed before charging agents.
+- **Not yet run against a hosted Supabase project.** All testing so far used the local stack.
+
+## Setup
+
+Requirements: Node 20+ and a Supabase project. For local development, Docker plus the Supabase
+CLI works instead of a hosted project.
+
+### 1. Supabase
+
+**Hosted project:**
+
+1. Apply the schema, using either option:
+   - In the Supabase dashboard, open **SQL Editor**, paste in
+     `supabase/migrations/20260924000000_init.sql`, and run it.
+   - Or run `npx supabase link --project-ref <ref>` and then `npx supabase db push`.
+2. Under **Authentication → URL Configuration**:
+   - Set **Site URL** to your app's URL.
+   - Add `<your app URL>/auth/confirm` to **Redirect URLs**.
+3. Email confirmation is on by default. New agents get a link that returns them to
+   `/auth/confirm`.
+
+**Local stack:** run `npx supabase start`. The migration in `supabase/migrations` is applied
+automatically on first start. To reapply it, run `npx supabase db reset`.
+
+### 2. Environment
+
+Copy `.env.example` to `.env.local` and fill in the values from **Project Settings → API**:
+
+```
+NEXT_PUBLIC_SUPABASE_URL=...
+NEXT_PUBLIC_SUPABASE_ANON_KEY=...   # the "anon" or "publishable" key
+NEXT_PUBLIC_SITE_URL=...            # optional; used for share links
+```
+
+The service-role key is not needed. The app talks to Supabase only with the anon key plus the
+signed-in user's session, and row-level security controls what each user can read and write.
+
+### 3. Run
 
 ```bash
 npm install
-export ANTHROPIC_API_KEY=sk-ant-...
-npm start            # http://localhost:3000
+npm run dev          # http://localhost:3000
 ```
 
-Optional environment variables:
-
-| Variable | Default | Purpose |
-|---|---|---|
-| `PORT` | `3000` | HTTP port |
-| `WALKTHROUGH_MODEL` | `claude-opus-5` | Claude model used for the analysis |
-
-## How it works
-
-- `public/`: a dependency-free web page. Photos are resized in the browser (longest edge
-  1568px, JPEG) before upload so requests stay small.
-- `server.js`: a small Node HTTP server. It serves the page and exposes `POST /api/walkthrough`.
-- `src/walkthrough.js`: validates the request and sends one Claude request with every room's
-  photos, labeled in order. It uses structured outputs (a JSON schema) so the report always has
-  the same shape. It also uses adaptive thinking and streaming, and turns on server-side refusal
-  fallbacks (`fallbacks: "default"`).
-
-Limits: 30 rooms, 6 photos per room, 60 photos in total.
-
-## Tests
+## Checks
 
 ```bash
-npm test
+npm run typecheck
+npm run lint
+npm run build
+npm run test:e2e     # needs a running local Supabase stack and a prior `npm run build`
 ```
 
-The tests use a stubbed Claude client, so they need no API key and make no network calls.
+The end-to-end test in `tests/e2e/walkthrough.spec.ts` runs the whole flow:
 
-> The reports are generated by AI from photos only. They are not a substitute for a licensed
-> professional inspection.
+1. Sign up and create a listing.
+2. Upload 5 photos, then rename, merge and reorder the rooms.
+3. Upload a PDF floor plan, place every room, and drag a marker (the new spot must survive a
+   reload).
+4. Publish.
+5. As a buyer on a phone-sized screen: move through the photos and rooms, then use the minimap
+   and the room list.
+6. Check privacy: logged-out visitors can't open the draft preview, unpublishing makes the public
+   page return 404, and a second agent can't see or open the first agent's listing.
+
+The test fixtures are generated by `node tests/make-fixtures.mjs`.
+
+## Project layout
+
+```
+src/app/(auth)/                 sign-in and sign-up pages and their server actions
+src/app/dashboard/              agent listings, the property editor and preview
+src/app/dashboard/actions.ts    all write operations (server actions)
+src/app/p/[slug]/               public walkthrough page
+src/components/walkthrough.tsx  the buyer-facing viewer, with its minimap and room list
+src/components/ui/              shadcn/ui components
+src/lib/                        Supabase clients, upload helpers, shared types
+src/proxy.ts                    refreshes the session; guards /dashboard
+supabase/migrations/            schema, row-level security, storage bucket and policies
+```
