@@ -1,9 +1,18 @@
+/** A tappable spot on a photo that leads to another room. x and y are normalized 0..1 on the photo. */
+export type Hotspot = {
+  id: string;
+  to_room_id: string;
+  x: number;
+  y: number;
+};
+
 export type Photo = {
   id: string;
   room_id: string;
   storage_path: string;
   is_primary: boolean;
   order_index: number;
+  hotspots: Hotspot[];
 };
 
 export type Room = {
@@ -29,7 +38,8 @@ export type PropertyWithRooms = Property & { rooms: Room[] };
 
 export const PROPERTY_SELECT =
   "id, address, mls_number, status, slug, floor_plan_path, published_at, " +
-  "rooms(id, label, order_index, floorplan_x, floorplan_y, photos(id, room_id, storage_path, is_primary, order_index))";
+  "rooms(id, label, order_index, floorplan_x, floorplan_y, " +
+  "photos(id, room_id, storage_path, is_primary, order_index, hotspots(id, to_room_id, x, y)))";
 
 /** Sorts rooms and each room's photos into display order (primary photo first). */
 export function sortRooms(rooms: Room[]): Room[] {

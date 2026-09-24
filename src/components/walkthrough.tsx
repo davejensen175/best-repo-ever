@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ChevronLeft, ChevronRight, List, Map as MapIcon, X } from "lucide-react";
+import { ArrowUpRight, ChevronLeft, ChevronRight, List, Map as MapIcon, X } from "lucide-react";
 import { mediaUrl } from "@/lib/media";
 import type { Room } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -20,6 +20,8 @@ export function Walkthrough({ address, rooms, floorPlanUrl, previewBackHref }: P
   const [photoIndex, setPhotoIndex] = useState(0);
   const [mapOpen, setMapOpen] = useState(false);
   const [listOpen, setListOpen] = useState(false);
+  // Aspect ratio per photo, so hotspots can be placed on the letterboxed image.
+  const [ratios, setRatios] = useState<Record<string, number>>({});
   const touchStart = useRef<{ x: number; y: number } | null>(null);
 
   const room = rooms[roomIndex];
@@ -69,6 +71,17 @@ export function Walkthrough({ address, rooms, floorPlanUrl, previewBackHref }: P
 
   const prevRoom = rooms[roomIndex - 1];
   const nextRoom = rooms[roomIndex + 1];
+  const ratio = ratios[photo.id];
+  const hotspots = photo.hotspots.flatMap((h) => {
+    const index = rooms.findIndex((r) => r.id === h.to_room_id);
+    return index >= 0 && index !== roomIndex ? [{ ...h, index, label: rooms[index].label }] : [];
+  });
+
+  function measure(img: HTMLImageElement | null, id: string) {
+    if (!img?.complete || !img.naturalWidth) return;
+    const value = img.naturalWidth / img.naturalHeight;
+    setRatios((r) => (r[id] === value ? r : { ...r, [id]: value }));
+  }
 
   return (
     <main
@@ -83,19 +96,49 @@ export function Walkthrough({ address, rooms, floorPlanUrl, previewBackHref }: P
         if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.5) step(dx < 0 ? 1 : -1);
       }}
     >
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        key={photo.id}
-        src={mediaUrl(photo.storage_path)}
-        alt={`${room.label}, photo ${photoIndex + 1} of ${room.photos.length}`}
-        className="absolute inset-0 size-full animate-[fade-in_250ms_ease-out] object-contain"
-        draggable={false}
-      />
       <Preload rooms={[prevRoom, nextRoom]} />
 
       {/* Tap zones for moving between photos on either side of the image. */}
       <button type="button" aria-label="Previous" className="absolute inset-y-16 left-0 w-1/4" onClick={() => step(-1)} />
       <button type="button" aria-label="Next" className="absolute inset-y-16 right-0 w-1/4" onClick={() => step(1)} />
+
+      {/* The photo sits above the tap zones but lets clicks through, except on its hotspots.
+          Once the image's aspect ratio is known, the frame shrinks to the image so hotspot
+          positions line up with the photo rather than the letterbox. */}
+      <div className="pointer-events-none absolute inset-0 grid place-items-center" style={{ containerType: "size" }}>
+        <div
+          className="relative"
+          style={ratio ? { width: `min(100cqw, ${ratio} * 100cqh)`, aspectRatio: ratio } : { width: "100%", height: "100%" }}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            key={photo.id}
+            ref={(img) => measure(img, photo.id)}
+            onLoad={(e) => measure(e.currentTarget, photo.id)}
+            src={mediaUrl(photo.storage_path)}
+            alt={`${room.label}, photo ${photoIndex + 1} of ${room.photos.length}`}
+            className="size-full animate-[fade-in_250ms_ease-out] object-contain"
+            draggable={false}
+          />
+          {ratio &&
+            hotspots.map((h) => (
+              <button
+                key={h.id}
+                type="button"
+                aria-label={`Walk to ${h.label}`}
+                onClick={() => goToRoom(h.index)}
+                className="group pointer-events-auto absolute flex -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-1"
+                style={{ left: `${h.x * 100}%`, top: `${h.y * 100}%` }}
+              >
+                <span className="relative grid size-11 place-items-center rounded-full border-2 border-white bg-white/25 shadow-lg backdrop-blur transition group-hover:scale-110">
+                  <span aria-hidden className="absolute inset-0 animate-ping rounded-full border-2 border-white/60" />
+                  <ArrowUpRight className="size-5" />
+                </span>
+                <span className="max-w-32 truncate rounded-full bg-black/60 px-2 py-0.5 text-xs font-medium">{h.label}</span>
+              </button>
+            ))}
+        </div>
+      </div>
 
       <header className="absolute inset-x-0 top-0 flex items-start justify-between gap-3 bg-gradient-to-b from-black/70 to-transparent p-4 pt-[max(1rem,env(safe-area-inset-top))]">
         <div className="min-w-0">

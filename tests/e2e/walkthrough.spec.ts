@@ -78,14 +78,44 @@ test("agent builds and publishes a walkthrough; buyer moves through it", async (
   const moved = (await plan.getByRole("button", { name: "Kitchen marker" }).boundingBox())!;
   expect(Math.abs(moved.x - (kb.x - 40))).toBeLessThan(8);
 
+  // 4. Hotspots: link the entry photo to the living room.
+  const photo = page.getByTestId("hotspot-photo");
+  const destination = page.getByRole("group", { name: "Hotspot destination" });
+  await page.getByRole("button", { name: "Entry photo 1" }).click();
+  await photo.locator("img").evaluate((img: HTMLImageElement) => img.decode());
+  let pb = (await photo.boundingBox())!;
+  await photo.click({ position: { x: pb.width * 0.5, y: pb.height * 0.45 } });
+  await destination.getByRole("button", { name: "Kitchen" }).click();
+  // Pick the wrong room first, then fix it from the marker.
+  await photo.getByRole("button", { name: "Hotspot to Kitchen" }).click();
+  await page.getByLabel("Leads to").selectOption({ label: "Living room" });
+  await expect(photo.getByRole("button", { name: "Hotspot to Living room" })).toBeVisible();
+  // A second hotspot, then delete it.
+  await page.getByRole("button", { name: "Done" }).click();
+  await photo.click({ position: { x: pb.width * 0.85, y: pb.height * 0.6 } });
+  await destination.getByRole("button", { name: "Bedroom" }).click();
+  await page.getByRole("button", { name: "Delete hotspot to Bedroom" }).click();
+  await expect(photo.getByRole("button", { name: /^Hotspot to/ })).toHaveCount(1);
+  // The bedroom photo gets one back to the living room.
+  await page.getByRole("button", { name: "Bedroom photo 1" }).click();
+  await photo.locator("img").evaluate((img: HTMLImageElement) => img.decode());
+  pb = (await photo.boundingBox())!;
+  await photo.click({ position: { x: pb.width * 0.2, y: pb.height * 0.5 } });
+  await destination.getByRole("button", { name: "Living room" }).click();
+  await expect(photo.getByRole("button", { name: "Hotspot to Living room" })).toBeVisible();
+  await page.waitForTimeout(1000);
+  await page.reload();
+  await expect(photo.getByRole("button", { name: "Hotspot to Living room" })).toHaveCount(1);
+  await expect(page.getByRole("button", { name: "Entry photo 1" })).toContainText("1");
+
   await page.screenshot({ path: "test-results/editor.png", fullPage: true });
 
-  // 4. Publish.
+  // 5. Publish.
   await page.getByRole("button", { name: "Publish", exact: true }).click();
   const shareUrl = await page.getByLabel("Share link").inputValue();
   expect(shareUrl).toMatch(/\/p\/12-test-lane-/);
 
-  // 5. A buyer (no session) on a phone.
+  // 6. A buyer (no session) on a phone.
   const buyer = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
   const b = await buyer.newPage();
   await b.goto(new URL(shareUrl).pathname);
@@ -93,13 +123,15 @@ test("agent builds and publishes a walkthrough; buyer moves through it", async (
   await expect(b.getByText("Room 1 of 4")).toBeVisible();
   await b.screenshot({ path: "test-results/viewer-entry.png" });
 
-  await b.getByRole("button", { name: /Living room/ }).click();
+  // Tap the entry photo's hotspot to walk into the living room.
+  await b.getByRole("button", { name: "Walk to Living room" }).click();
   await expect(b.getByRole("heading", { name: "Living room" })).toBeVisible();
   await expect(b.getByRole("button", { name: /^Photo \d$/ })).toHaveCount(2);
   await b.getByRole("button", { name: "Next", exact: true }).click(); // second living-room photo
   await expect(b.getByRole("heading", { name: "Living room" })).toBeVisible();
   await b.getByRole("button", { name: "Next", exact: true }).click(); // crosses into the bedroom
   await expect(b.getByRole("heading", { name: "Bedroom" })).toBeVisible();
+  await expect(b.getByRole("button", { name: "Walk to Living room" })).toBeVisible();
 
   // Minimap: open and jump to the kitchen.
   await b.getByRole("button", { name: "Open floor plan" }).click();

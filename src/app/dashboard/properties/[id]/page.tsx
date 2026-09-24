@@ -7,6 +7,7 @@ import { mediaUrl } from "@/lib/media";
 import { PROPERTY_SELECT, sortRooms, type PropertyWithRooms } from "@/lib/types";
 import { DetailsForm } from "./details-form";
 import { FloorPlanEditor } from "./floor-plan-editor";
+import { HotspotEditor } from "./hotspot-editor";
 import { PhotoManager } from "./photo-manager";
 import { PublishPanel } from "./publish-panel";
 
@@ -67,6 +68,14 @@ export default async function PropertyPage(props: PageProps<"/dashboard/properti
           floorPlanUrl={property.floor_plan_path ? mediaUrl(property.floor_plan_path) : null}
           rooms={rooms.map(({ id, label, floorplan_x, floorplan_y }) => ({ id, label, floorplan_x, floorplan_y }))}
         />
+      </Section>
+
+      <Section
+        step={4}
+        title="Hotspots"
+        description="Click a spot on a photo, such as a doorway, and pick the room it leads to. Buyers tap hotspots to walk from room to room."
+      >
+        <HotspotEditor propertyId={property.id} rooms={rooms} />
       </Section>
     </div>
   );

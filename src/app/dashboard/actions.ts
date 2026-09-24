@@ -35,6 +35,8 @@ async function run(body: () => Promise<void>): Promise<ActionResult> {
   }
 }
 
+const clamp01 = (v: number) => Math.min(1, Math.max(0, v));
+
 function refresh(propertyId: string) {
   revalidatePath(`/dashboard/properties/${propertyId}`);
 }
@@ -175,6 +177,8 @@ export async function movePhoto(propertyId: string, photoId: string, targetRoomI
       .update({ room_id: targetRoomId, is_primary: !count, order_index: count ?? 0 })
       .eq("id", photoId);
     if (error) fail("Could not move the photo.", error);
+    // Hotspots on this photo that led to its new room now point at the room you're already in.
+    await supabase.from("hotspots").delete().eq("photo_id", photoId).eq("to_room_id", targetRoomId);
 
     const { data: remaining } = await supabase
       .from("photos")
@@ -235,13 +239,67 @@ export async function setFloorPlan(propertyId: string, path: string | null): Pro
 export async function placeRoom(propertyId: string, roomId: string, position: { x: number; y: number } | null): Promise<ActionResult> {
   return run(async () => {
     const { supabase } = await requireUser();
-    const clamp = (v: number) => Math.min(1, Math.max(0, v));
     const { error } = await supabase
       .from("rooms")
-      .update(position ? { floorplan_x: clamp(position.x), floorplan_y: clamp(position.y) } : { floorplan_x: null, floorplan_y: null })
+      .update(position ? { floorplan_x: clamp01(position.x), floorplan_y: clamp01(position.y) } : { floorplan_x: null, floorplan_y: null })
       .eq("id", roomId)
       .eq("property_id", propertyId);
     if (error) fail("Could not place the room.", error);
+    refresh(propertyId);
+  });
+}
+
+/** Adds a hotspot on a photo (normalized 0..1) that leads to another room. */
+export async function addHotspot(
+  propertyId: string,
+  photoId: string,
+  toRoomId: string,
+  position: { x: number; y: number },
+): Promise<ActionResult> {
+  return run(async () => {
+    const { supabase } = await requireUser();
+    const { data: photo } = await supabase.from("photos").select("room_id").eq("id", photoId).single();
+    if (!photo) fail("Photo not found.");
+    if (photo.room_id === toRoomId) fail("A hotspot has to lead to a different room.");
+    const { error } = await supabase
+      .from("hotspots")
+      .insert({ photo_id: photoId, to_room_id: toRoomId, x: clamp01(position.x), y: clamp01(position.y) });
+    if (error) fail("Could not add the hotspot.", error);
+    refresh(propertyId);
+  });
+}
+
+/** Moves a hotspot or changes the room it leads to. */
+export async function updateHotspot(
+  propertyId: string,
+  hotspotId: string,
+  change: { toRoomId?: string; position?: { x: number; y: number } },
+): Promise<ActionResult> {
+  return run(async () => {
+    const { supabase } = await requireUser();
+    if (change.toRoomId) {
+      const { data: hotspot } = await supabase.from("hotspots").select("photos(room_id)").eq("id", hotspotId).single();
+      const photo = hotspot?.photos as unknown as { room_id: string } | null;
+      if (!photo) fail("Hotspot not found.");
+      if (photo.room_id === change.toRoomId) fail("A hotspot has to lead to a different room.");
+    }
+    const { error } = await supabase
+      .from("hotspots")
+      .update({
+        ...(change.toRoomId && { to_room_id: change.toRoomId }),
+        ...(change.position && { x: clamp01(change.position.x), y: clamp01(change.position.y) }),
+      })
+      .eq("id", hotspotId);
+    if (error) fail("Could not update the hotspot.", error);
+    refresh(propertyId);
+  });
+}
+
+export async function deleteHotspot(propertyId: string, hotspotId: string): Promise<ActionResult> {
+  return run(async () => {
+    const { supabase } = await requireUser();
+    const { error } = await supabase.from("hotspots").delete().eq("id", hotspotId);
+    if (error) fail("Could not delete the hotspot.", error);
     refresh(propertyId);
   });
 }
